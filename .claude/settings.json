@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\carlo\\.claude\\projects\\c--Users-carlo-Desktop-copilot-backend\\memory"
+    ]
+  }
+}
