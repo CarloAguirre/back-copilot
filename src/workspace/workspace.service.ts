@@ -5,6 +5,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Observable, concat, from } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { ConfigService } from '@nestjs/config';
+import { encryptToken } from '../common/crypto';
+import { GithubService } from '../github/github.service';
 
 import { UserWorkspaceSession } from './entities/user-workspace-session.entity';
 import { WorkspaceTab } from './entities/workspace-tab.entity';
@@ -24,13 +27,27 @@ export class WorkspaceService {
     @InjectRepository(AgentAction) private actionRepo: Repository<AgentAction>,
     @InjectRepository(AgentEvent) private eventRepo: Repository<AgentEvent>,
     private readonly eventBus: EventBusService,
+    private readonly githubService: GithubService,
+    private readonly config: ConfigService,
   ) {}
 
   // ── Create ─────────────────────────────────────────────────────────────────
 
-  async create(githubUserId: string, username: string, dto: CreateWorkspaceDto) {
-    const ws = this.wsRepo.create({ githubUserId, username, ...dto });
+  async create(githubUserId: string, username: string, dto: CreateWorkspaceDto, accessToken: string) {
+    const encToken = encryptToken(accessToken, this.config.get<string>('JWT_SECRET'));
+    const ws = this.wsRepo.create({ githubUserId, username, encryptedToken: encToken, ...dto });
     const saved = await this.wsRepo.save(ws);
+
+    // Best-effort webhook registration — never fail workspace creation
+    const backendUrl = this.config.get<string>('BACKEND_URL', '');
+    const webhookSecret = this.config.get<string>('GITHUB_WEBHOOK_SECRET', '');
+    if (backendUrl && webhookSecret) {
+      const webhookUrl = `${backendUrl}/github/webhooks/agent-inbox`;
+      this.githubService
+        .ensureWebhook(accessToken, dto.owner, dto.repo, webhookUrl, webhookSecret)
+        .catch((err) => console.warn(`[workspace] ensureWebhook failed: ${err?.message}`));
+    }
+
     return { workspaceId: saved.id };
   }
 

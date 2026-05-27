@@ -6,7 +6,7 @@ import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // Log every incoming request so we can trace OAuth callback in Render Live Tail
   app.use((req: Request, _res: Response, next: NextFunction) => {

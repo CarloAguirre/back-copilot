@@ -62,7 +62,7 @@ export class AuthController {
     const params = new URLSearchParams({
       client_id: this.config.get<string>('GITHUB_CLIENT_ID'),
       redirect_uri: this.config.get<string>('GITHUB_CALLBACK_URL'),
-      scope: 'read:user user:email repo',
+      scope: 'read:user user:email repo admin:repo_hook',
       state: sessionId,
     });
 

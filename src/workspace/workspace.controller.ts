@@ -23,8 +23,8 @@ export class WorkspaceController {
   /** POST /workspaces */
   @Post()
   create(@Req() req: Request, @Body() dto: CreateWorkspaceDto) {
-    const { githubId, username } = user(req);
-    return this.workspaceService.create(githubId, username, dto);
+    const { githubId, username, accessToken } = user(req);
+    return this.workspaceService.create(githubId, username, dto, accessToken);
   }
 
   /** PATCH /workspaces/:id/state */

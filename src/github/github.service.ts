@@ -260,6 +260,40 @@ export class GithubService {
     }
   }
 
+  // ─── Webhooks ─────────────────────────────────────────────────────────────
+
+  async ensureWebhook(
+    token: string,
+    owner: string,
+    repo: string,
+    webhookUrl: string,
+    secret: string,
+  ): Promise<void> {
+    const kit = this.octokit(token);
+    const { data: hooks } = await kit.repos.listWebhooks({ owner, repo });
+    if (hooks.some((h) => h.config.url === webhookUrl)) return;
+    await kit.repos.createWebhook({
+      owner,
+      repo,
+      config: { url: webhookUrl, content_type: 'json', secret },
+      events: ['push'],
+      active: true,
+    });
+  }
+
+  // ─── File (used by webhook inbox reader) ──────────────────────────────────
+
+  async getFileRaw(
+    token: string,
+    owner: string,
+    repo: string,
+    path: string,
+    ref: string,
+  ): Promise<string> {
+    const file = await this.getFile(token, owner, repo, path, ref);
+    return file.content;
+  }
+
   // ─── Helpers ───────────────────────────────────────────────────────────────
 
   private async defaultBranch(kit: Octokit, owner: string, repo: string) {

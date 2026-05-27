@@ -14,6 +14,7 @@ export class UserWorkspaceSession {
 
   @Column() githubUserId: string;
   @Column() username: string;
+  @Column({ nullable: true }) encryptedToken: string;
   @Column() repoFullName: string;
   @Column() owner: string;
   @Column() repo: string;

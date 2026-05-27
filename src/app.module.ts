@@ -6,6 +6,7 @@ import { GithubModule } from './github/github.module';
 import { EventsModule } from './events/events.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { AgentModule } from './agent/agent.module';
+import { WebhookModule } from './webhook/webhook.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { AgentModule } from './agent/agent.module';
     GithubModule,
     WorkspaceModule,
     AgentModule,
+    WebhookModule,
   ],
 })
 export class AppModule {}

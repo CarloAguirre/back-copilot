@@ -5,5 +5,6 @@ import { GithubService } from './github.service';
 @Module({
   controllers: [GithubController],
   providers: [GithubService],
+  exports: [GithubService],
 })
 export class GithubModule {}
