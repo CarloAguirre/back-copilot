@@ -8,7 +8,6 @@ import {
   Res,
   UseGuards,
   BadRequestException,
-  InternalServerErrorException,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -86,48 +85,59 @@ export class AuthController {
       return this.sendHtml(res, '✗', 'Error', 'No se recibió código de GitHub. Intenta de nuevo.');
     }
 
-    // ── Exchange code for access token ────────────────────────────────────
-    const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_id: this.config.get<string>('GITHUB_CLIENT_ID'),
-        client_secret: this.config.get<string>('GITHUB_CLIENT_SECRET'),
-        code,
-        redirect_uri: this.config.get<string>('GITHUB_CALLBACK_URL'),
-      }),
-    });
+    try {
+      // ── Exchange code for access token ──────────────────────────────────
+      const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: this.config.get<string>('GITHUB_CLIENT_ID'),
+          client_secret: this.config.get<string>('GITHUB_CLIENT_SECRET'),
+          code,
+          redirect_uri: this.config.get<string>('GITHUB_CALLBACK_URL'),
+        }),
+      });
 
-    const tokenData = (await tokenRes.json()) as any;
-    const accessToken: string = tokenData.access_token;
+      const tokenData = (await tokenRes.json()) as any;
+      const accessToken: string = tokenData.access_token;
 
-    if (!accessToken) {
-      return this.sendHtml(res, '✗', 'Error de autenticación', 'No se pudo obtener el token. Intenta de nuevo.');
+      if (!accessToken) {
+        const reason = tokenData.error_description ?? tokenData.error ?? 'unknown';
+        console.error('[callback] No access_token from GitHub:', reason);
+        return this.sendHtml(res, '✗', 'Error de autenticación', `GitHub: ${reason}`);
+      }
+
+      // ── Fetch GitHub profile + emails in parallel ───────────────────────
+      const ghHeaders = { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' };
+      const [profileRes, emailsRes] = await Promise.all([
+        fetch('https://api.github.com/user', { headers: ghHeaders }),
+        fetch('https://api.github.com/user/emails', { headers: ghHeaders }),
+      ]);
+
+      if (!profileRes.ok) {
+        console.error('[callback] GitHub /user failed:', profileRes.status);
+        return this.sendHtml(res, '✗', 'Error', 'No se pudo obtener el perfil de GitHub.');
+      }
+
+      const profile = (await profileRes.json()) as any;
+      const emails = emailsRes.ok ? ((await emailsRes.json()) as any[]) : [];
+
+      // ── Build user, generate JWT, store in session ──────────────────────
+      const sessionUser = this.authService.buildSessionUser(accessToken, profile, emails);
+      const jwt = await this.authService.generateJwt(sessionUser);
+
+      if (state) {
+        this.authService.storeSessionToken(state, jwt);
+        console.log('[callback] JWT stored for sessionId:', state);
+      } else {
+        console.warn('[callback] No state/sessionId in callback – JWT not stored');
+      }
+
+      return this.sendHtml(res, '✓', 'Login listo, vuelve al chat.', 'Puedes cerrar esta pestaña.');
+    } catch (err) {
+      console.error('[callback] Unexpected error:', err);
+      return this.sendHtml(res, '✗', 'Error inesperado', 'Revisa los logs del servidor.');
     }
-
-    // ── Fetch GitHub profile + emails in parallel ─────────────────────────
-    const headers = { Authorization: `Bearer ${accessToken}`, Accept: 'application/vnd.github+json' };
-    const [profileRes, emailsRes] = await Promise.all([
-      fetch('https://api.github.com/user', { headers }),
-      fetch('https://api.github.com/user/emails', { headers }),
-    ]);
-
-    if (!profileRes.ok) {
-      throw new InternalServerErrorException('GitHub profile fetch failed');
-    }
-
-    const profile = (await profileRes.json()) as any;
-    const emails = emailsRes.ok ? ((await emailsRes.json()) as any[]) : [];
-
-    // ── Build user, generate JWT, store in session ────────────────────────
-    const sessionUser = this.authService.buildSessionUser(accessToken, profile, emails);
-    const jwt = await this.authService.generateJwt(sessionUser);
-
-    if (state) {
-      this.authService.storeSessionToken(state, jwt);
-    }
-
-    return this.sendHtml(res, '✓', 'Login listo, vuelve al chat.', 'Puedes cerrar esta pestaña.');
   }
 
   /**

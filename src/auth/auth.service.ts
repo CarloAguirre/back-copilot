@@ -53,11 +53,14 @@ export class AuthService {
   }
 
   storeSessionToken(sessionId: string, token: string): void {
-    const entry = this.sessionStore.get(sessionId);
-    if (!entry || Date.now() > entry.expiresAt) return;
-    entry.status = 'authenticated';
-    entry.token = token;
-    entry.expiresAt = Date.now() + SESSION_TTL_MS;
+    // Always write – don't require prior createPendingSession.
+    // This handles cold-start restarts on Render free tier where the
+    // pending entry may have been lost before the OAuth callback arrives.
+    this.sessionStore.set(sessionId, {
+      status: 'authenticated',
+      token,
+      expiresAt: Date.now() + SESSION_TTL_MS,
+    });
   }
 
   pollSession(sessionId: string): { status: 'pending' } | { status: 'authenticated'; token: string } {
