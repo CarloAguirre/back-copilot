@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { Observable, concat, from } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { ConfigService } from '@nestjs/config';
+import { createHmac } from 'crypto';
 import { encryptToken } from '../common/crypto';
 import { GithubService } from '../github/github.service';
 
@@ -164,6 +165,20 @@ export class WorkspaceService {
     action.status = AgentActionStatus.REJECTED;
     await this.actionRepo.save(action);
     return action;
+  }
+
+  // ── Agent link (signed short-lived URL) ──────────────────────────────────
+
+  async generateAgentLink(workspaceId: string, userId: string) {
+    await this.findOwnedOrFail(workspaceId, userId);
+    const expiresAt = Date.now() + 15 * 60 * 1000; // 15 min
+    const secret = this.config.get<string>('JWT_SECRET');
+    const msg = `${workspaceId}:${expiresAt}`;
+    const sig = createHmac('sha256', secret).update(msg).digest('hex');
+    const token = `${workspaceId}.${expiresAt}.${sig}`;
+    const backendUrl = this.config.get<string>('BACKEND_URL', '');
+    const liveContextUrl = `${backendUrl}/agent/workspaces/${workspaceId}/live-context?token=${token}`;
+    return { liveContextUrl, expiresAt: new Date(expiresAt).toISOString() };
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

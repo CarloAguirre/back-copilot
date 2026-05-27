@@ -54,6 +54,12 @@ export class WorkspaceController {
     return stream.pipe(map((data) => ({ data }) as MessageEvent));
   }
 
+  /** POST /workspaces/:id/agent-link */
+  @Post(':id/agent-link')
+  generateAgentLink(@Req() req: Request, @Param('id') id: string) {
+    return this.workspaceService.generateAgentLink(id, user(req).githubId);
+  }
+
   /** POST /workspaces/:id/actions/:actionId/apply */
   @Post(':id/actions/:actionId/apply')
   applyAction(
