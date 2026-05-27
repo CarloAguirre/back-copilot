@@ -8,67 +8,89 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
-import { GithubOAuthGuard } from './github-oauth.guard';
-import { SessionGuard } from './session.guard';
+import { JwtAuthGuard } from './jwt.guard';
 import { AuthService, SessionUser } from './auth.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly authService: AuthService) {}
 
   /**
-   * Step 1 – redirect browser to GitHub.
-   * Frontend just navigates to GET /auth/github (link or window.location).
+   * GET /auth/github
+   * Frontend opens this URL in a popup window.
+   * Passport redirects to GitHub – this body never runs.
    */
   @Get('github')
   @UseGuards(AuthGuard('github'))
-  githubLogin() {
-    // Passport intercepts and redirects – this body never runs.
-  }
+  githubLogin() {}
 
   /**
-   * Step 2 – GitHub redirects here after user approves.
-   * Passport validates the code, creates the session, then we redirect
-   * back to the frontend with a clean URL (no token in the URL).
+   * GET /auth/github/callback
+   * GitHub redirects here after the user approves.
+   * We generate a JWT and pass it to the opener window via postMessage,
+   * then close the popup – the GitHub token never leaves the server.
    */
   @Get('github/callback')
-  @UseGuards(GithubOAuthGuard)
-  async githubCallback(@Res() res: Response) {
-    const frontendCallback = this.config.get<string>(
-      'FRONTEND_CALLBACK_URL',
-      'http://localhost:5173/auth/callback',
-    );
-    res.redirect(frontendCallback);
+  @UseGuards(AuthGuard('github'))
+  async githubCallback(@Req() req: Request, @Res() res: Response) {
+    const user = req.user as SessionUser;
+    const jwt = await this.authService.generateJwt(user);
+
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body{margin:0;display:flex;justify-content:center;align-items:center;
+         height:100vh;background:#0d1117;color:#c9d1d9;font-family:sans-serif}
+    .box{text-align:center}
+    .check{font-size:52px;margin-bottom:12px}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="check">&#10003;</div>
+    <h2 style="margin:0 0 8px">Login successful</h2>
+    <p style="color:#8b949e;margin:0">This window will close automatically.</p>
+  </div>
+  <script>
+    try {
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: 'NEBULA_AUTH', token: '${jwt}' },
+          '*'
+        );
+      }
+    } finally {
+      setTimeout(() => window.close(), 1200);
+    }
+  </script>
+</body>
+</html>`;
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
   }
 
   /**
    * GET /auth/me
-   * Returns the public user profile stored in the session.
-   * The access token is never included in the response.
+   * Returns the public user profile. Requires Authorization: Bearer <token>.
    */
   @Get('me')
-  @UseGuards(SessionGuard)
+  @UseGuards(JwtAuthGuard)
   getMe(@Req() req: Request) {
     return this.authService.toPublicUser(req.user as SessionUser);
   }
 
   /**
-   * POST /auth/logout
-   * Destroys the session and clears the cookie.
+   * GET /auth/logout
+   * Stateless – the frontend just discards the JWT.
+   * This endpoint exists for a clean API surface.
    */
   @Get('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
-  logout(@Req() req: Request, @Res() res: Response) {
-    req.logout(() => {
-      req.session.destroy(() => {
-        res.clearCookie('connect.sid');
-        res.status(HttpStatus.NO_CONTENT).send();
-      });
-    });
+  logout() {
+    return;
   }
 }

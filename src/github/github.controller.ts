@@ -9,7 +9,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
-import { SessionGuard } from '../auth/session.guard';
+import { JwtAuthGuard } from '../auth/jwt.guard';
 import { SessionUser } from '../auth/auth.service';
 import { GithubService } from './github.service';
 import { CommitFileDto } from './dto/commit-file.dto';
@@ -20,7 +20,7 @@ function user(req: Request): SessionUser {
 }
 
 @Controller()
-@UseGuards(SessionGuard)
+@UseGuards(JwtAuthGuard)
 export class GithubController {
   constructor(private readonly github: GithubService) {}
 
