@@ -21,6 +21,12 @@ export class UserWorkspaceSession {
   @Column() branch: string;
   @Column({ nullable: true }) activePath: string;
 
+  // ── Webhook status (populated async during workspace creation) ──────────
+  @Column({ default: false }) webhookInstalled: boolean;
+  @Column({ nullable: true, type: 'int' }) webhookHookId: number;
+  @Column({ nullable: true }) webhookHookUrl: string;
+  @Column({ type: 'text', nullable: true }) webhookLastError: string;
+
   @CreateDateColumn() createdAt: Date;
   @UpdateDateColumn() updatedAt: Date;
 

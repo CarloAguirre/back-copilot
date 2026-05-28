@@ -35,21 +35,65 @@ export class WorkspaceService {
   // ── Create ─────────────────────────────────────────────────────────────────
 
   async create(githubUserId: string, username: string, dto: CreateWorkspaceDto, accessToken: string) {
+    console.log(`[workspace] create repoFullName=${dto.repoFullName} branch=${dto.branch}`);
+
     const encToken = encryptToken(accessToken, this.config.get<string>('JWT_SECRET'));
     const ws = this.wsRepo.create({ githubUserId, username, encryptedToken: encToken, ...dto });
     const saved = await this.wsRepo.save(ws);
 
-    // Best-effort webhook registration — never fail workspace creation
     const backendUrl = this.config.get<string>('BACKEND_URL', '');
     const webhookSecret = this.config.get<string>('GITHUB_WEBHOOK_SECRET', '');
-    if (backendUrl && webhookSecret) {
-      const webhookUrl = `${backendUrl}/github/webhooks/agent-inbox`;
-      this.githubService
-        .ensureWebhook(accessToken, dto.owner, dto.repo, webhookUrl, webhookSecret)
-        .catch((err) => console.warn(`[workspace] ensureWebhook failed: ${err?.message}`));
+
+    if (!backendUrl || !webhookSecret) {
+      console.warn(
+        `[workspace] webhook skipped — BACKEND_URL=${backendUrl ? 'ok' : 'MISSING'} ` +
+        `GITHUB_WEBHOOK_SECRET=${webhookSecret ? 'ok' : 'MISSING'}`,
+      );
+      return { workspaceId: saved.id };
+    }
+
+    const webhookUrl = `${backendUrl}/github/webhooks/agent-inbox`;
+    console.log(`[workspace] attempting ensureWebhook ${dto.owner}/${dto.repo} → ${webhookUrl}`);
+
+    // Best-effort — never fail workspace creation, but persist the outcome
+    try {
+      const result = await this.githubService.ensureWebhook(
+        accessToken, dto.owner, dto.repo, webhookUrl, webhookSecret,
+      );
+      console.log(
+        `[workspace] webhook ${result.alreadyExisted ? 'already existed' : 'created'} ` +
+        `id=${result.hookId} url=${result.hookUrl}`,
+      );
+      await this.wsRepo.update(saved.id, {
+        webhookInstalled: true,
+        webhookHookId: result.hookId,
+        webhookHookUrl: result.hookUrl,
+        webhookLastError: null,
+      });
+    } catch (err) {
+      const status: unknown = (err as any)?.status ?? (err as any)?.response?.status ?? 'unknown';
+      const msg: string = (err as any)?.response?.data?.message ?? (err as any)?.message ?? 'unknown';
+      console.error(`[workspace] ensureWebhook failed status=${status} message=${msg}`);
+      await this.wsRepo.update(saved.id, {
+        webhookInstalled: false,
+        webhookLastError: `${status}: ${msg}`,
+      });
     }
 
     return { workspaceId: saved.id };
+  }
+
+  // ── Webhook status ─────────────────────────────────────────────────────────
+
+  async getWebhookStatus(workspaceId: string, userId: string) {
+    const ws = await this.findOwnedOrFail(workspaceId, userId);
+    return {
+      repoFullName: ws.repoFullName,
+      webhookInstalled: ws.webhookInstalled,
+      hookId: ws.webhookHookId ?? null,
+      hookUrl: ws.webhookHookUrl ?? null,
+      lastError: ws.webhookLastError ?? null,
+    };
   }
 
   // ── Patch state (idempotent) ───────────────────────────────────────────────

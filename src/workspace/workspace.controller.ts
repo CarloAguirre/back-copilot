@@ -54,6 +54,12 @@ export class WorkspaceController {
     return stream.pipe(map((data) => ({ data }) as MessageEvent));
   }
 
+  /** GET /workspaces/:id/webhook-status */
+  @Get(':id/webhook-status')
+  getWebhookStatus(@Req() req: Request, @Param('id') id: string) {
+    return this.workspaceService.getWebhookStatus(id, user(req).githubId);
+  }
+
   /** POST /workspaces/:id/agent-link */
   @Post(':id/agent-link')
   generateAgentLink(@Req() req: Request, @Param('id') id: string) {

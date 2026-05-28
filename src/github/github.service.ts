@@ -268,17 +268,21 @@ export class GithubService {
     repo: string,
     webhookUrl: string,
     secret: string,
-  ): Promise<void> {
+  ): Promise<{ hookId: number; hookUrl: string; alreadyExisted: boolean }> {
     const kit = this.octokit(token);
     const { data: hooks } = await kit.repos.listWebhooks({ owner, repo });
-    if (hooks.some((h) => h.config.url === webhookUrl)) return;
-    await kit.repos.createWebhook({
+    const existing = hooks.find((h) => h.config.url === webhookUrl);
+    if (existing) {
+      return { hookId: existing.id, hookUrl: existing.config.url, alreadyExisted: true };
+    }
+    const { data: created } = await kit.repos.createWebhook({
       owner,
       repo,
       config: { url: webhookUrl, content_type: 'json', secret },
       events: ['push'],
       active: true,
     });
+    return { hookId: created.id, hookUrl: created.config.url, alreadyExisted: false };
   }
 
   // ─── File (used by webhook inbox reader) ──────────────────────────────────
