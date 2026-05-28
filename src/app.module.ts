@@ -7,6 +7,7 @@ import { EventsModule } from './events/events.module';
 import { WorkspaceModule } from './workspace/workspace.module';
 import { AgentModule } from './agent/agent.module';
 import { WebhookModule } from './webhook/webhook.module';
+import { AgentSessionModule } from './agent-session/agent-session.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { WebhookModule } from './webhook/webhook.module';
     WorkspaceModule,
     AgentModule,
     WebhookModule,
+    AgentSessionModule,
   ],
 })
 export class AppModule {}
