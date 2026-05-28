@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'crypto';
 import { AgentSession } from './agent-session.entity';
 import { WorkspaceService } from '../workspace/workspace.service';
+import { UserWorkspaceSession } from '../workspace/entities/user-workspace-session.entity';
 
 @Injectable()
 export class AgentSessionService {
@@ -16,19 +17,14 @@ export class AgentSessionService {
 
   // ── PATCH /agent-session/active ───────────────────────────────────────────
 
-  async setActive(userId: string, workspaceId: string) {
-    // Verify ownership and get workspace metadata
+  async setActive(userId: string, workspaceId: string, alias?: string) {
     const ws = await this.workspaceService.findByIdOrFail(workspaceId);
     if (ws.githubUserId !== userId) throw new UnauthorizedException('Workspace belongs to a different user');
 
-    // Generate short-lived link (for liveSimpleUrl column, informational)
     const linkResult = await this.workspaceService.generateAgentLink(workspaceId, userId);
 
-    // Upsert session — find by userId, update or create
     let session = await this.sessionRepo.findOne({ where: { userId } });
-    const isNew = !session;
-
-    if (isNew) {
+    if (!session) {
       session = this.sessionRepo.create({
         userId,
         agentKey: randomBytes(32).toString('hex'),
@@ -38,14 +34,22 @@ export class AgentSessionService {
     session.activeWorkspaceId = workspaceId;
     session.activeRepo = ws.repoFullName;
     session.liveSimpleUrl = linkResult.liveSimpleUrl;
+
+    // Apply alias: explicit param wins, then AGENT_ALIAS env, then keep existing
+    const envAlias = this.config.get<string>('AGENT_ALIAS', '').trim();
+    const finalAlias = alias?.trim() || envAlias || session.alias || null;
+    if (finalAlias) session.alias = finalAlias;
+
     await this.sessionRepo.save(session);
 
     const backendUrl = this.config.get<string>('BACKEND_URL', '');
     const agentCurrentUrl = `${backendUrl}/agent/current?key=${session.agentKey}`;
+    const agentAliasUrl = session.alias ? `${backendUrl}/agent/current/${session.alias}` : null;
 
     return {
       agentKey: session.agentKey,
       agentCurrentUrl,
+      agentAliasUrl,
       activeWorkspaceId: workspaceId,
       activeRepo: ws.repoFullName,
       liveSimpleUrl: linkResult.liveSimpleUrl,
@@ -58,11 +62,27 @@ export class AgentSessionService {
   async getCurrent(agentKey: string) {
     const session = await this.sessionRepo.findOne({ where: { agentKey } });
     if (!session) throw new UnauthorizedException('Invalid agent key');
+    return this.resolveContext(session);
+  }
+
+  // ── GET /agent/current/:alias ─────────────────────────────────────────────
+
+  async getCurrentByAlias(alias: string) {
+    const session = await this.sessionRepo.findOne({ where: { alias } });
+    if (!session) throw new NotFoundException(`No session found for alias "${alias}"`);
+    return this.resolveContext(session);
+  }
+
+  // ── Shared ────────────────────────────────────────────────────────────────
+
+  private async resolveContext(session: AgentSession) {
     if (!session.activeWorkspaceId) throw new NotFoundException('No active workspace set');
-
     const ws = await this.workspaceService.findByIdOrFail(session.activeWorkspaceId);
-    const dirtyFiles = ws.tabs.filter((t) => t.dirty).map((t) => t.path);
+    return this.formatContext(ws);
+  }
 
+  private formatContext(ws: UserWorkspaceSession) {
+    const dirtyFiles = ws.tabs.filter((t) => t.dirty).map((t) => t.path);
     return {
       workspaceId: ws.id,
       repoFullName: ws.repoFullName,
