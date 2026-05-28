@@ -60,6 +60,12 @@ export class AgentService {
     };
   }
 
+  async getLiveContextByToken(token: string) {
+    const parts = token.split('.');
+    if (parts.length !== 3) throw new UnauthorizedException('Invalid token format');
+    return this.getLiveContext(parts[0], token);
+  }
+
   async getLiveContext(workspaceId: string, token: string) {
     const parts = token.split('.');
     if (parts.length !== 3) throw new UnauthorizedException('Invalid token format');

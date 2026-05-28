@@ -178,7 +178,8 @@ export class WorkspaceService {
     const token = `${workspaceId}.${expiresAt}.${sig}`;
     const backendUrl = this.config.get<string>('BACKEND_URL', '');
     const liveContextUrl = `${backendUrl}/agent/workspaces/${workspaceId}/live-context?token=${token}`;
-    return { liveContextUrl, expiresAt: new Date(expiresAt).toISOString() };
+    const liveSimpleUrl = `${backendUrl}/agent/live/${token}`;
+    return { liveContextUrl, liveSimpleUrl, expiresAt: new Date(expiresAt).toISOString() };
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
