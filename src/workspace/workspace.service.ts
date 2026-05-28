@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, ForbiddenException,
+  Injectable, NotFoundException, ForbiddenException, HttpException, HttpStatus,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -109,22 +109,52 @@ export class WorkspaceService {
     if (dto.tabs?.length) {
       for (const tab of dto.tabs) {
         if (!tab.path) continue;
-        await this.tabRepo.upsert(
-          {
+
+        // Validate content size before touching the DB
+        if (tab.content !== undefined) {
+          const bytes = Buffer.byteLength(tab.content, 'utf8');
+          if (bytes > 200 * 1024) {
+            throw new HttpException(
+              { statusCode: 413, message: `Tab "${tab.path}" content exceeds 200 KB limit (${Math.ceil(bytes / 1024)} KB sent)`, error: 'Payload Too Large' },
+              HttpStatus.PAYLOAD_TOO_LARGE,
+            );
+          }
+        }
+
+        // Find-then-merge: only overwrite columns that were actually sent.
+        // Using upsert would null-out content on cursor-only updates.
+        const existing = await this.tabRepo.findOne({ where: { workspaceId, path: tab.path } });
+
+        if (existing) {
+          if (tab.language  !== undefined) existing.language     = tab.language  ?? null;
+          if (tab.sha       !== undefined) existing.sha          = tab.sha       ?? null;
+          if (tab.dirty     !== undefined) existing.dirty        = tab.dirty     ?? false;
+          if (tab.isActive  !== undefined) existing.isActive     = tab.isActive  ?? false;
+          if (tab.content   !== undefined) existing.content      = tab.content;
+          if (tab.cursor    !== undefined) {
+            existing.cursorLine   = tab.cursor.line   ?? null;
+            existing.cursorColumn = tab.cursor.column ?? null;
+          }
+          if (tab.selection !== undefined) {
+            existing.selectionStart = (tab.selection.start ?? null) as any;
+            existing.selectionEnd   = (tab.selection.end   ?? null) as any;
+          }
+          await this.tabRepo.save(existing);
+        } else {
+          await this.tabRepo.save(this.tabRepo.create({
             workspaceId,
-            path: tab.path,
-            language: tab.language ?? null,
-            sha: tab.sha ?? null,
-            dirty: tab.dirty ?? false,
-            content: tab.content ?? null,
-            cursorLine: tab.cursor?.line ?? null,
-            cursorColumn: tab.cursor?.column ?? null,
+            path:          tab.path,
+            language:      tab.language  ?? null,
+            sha:           tab.sha       ?? null,
+            dirty:         tab.dirty     ?? false,
+            isActive:      tab.isActive  ?? false,
+            content:       tab.content   ?? null,
+            cursorLine:    tab.cursor?.line   ?? null,
+            cursorColumn:  tab.cursor?.column ?? null,
             selectionStart: (tab.selection?.start ?? null) as any,
-            selectionEnd: (tab.selection?.end ?? null) as any,
-            isActive: tab.isActive ?? false,
-          },
-          ['workspaceId', 'path'],
-        );
+            selectionEnd:   (tab.selection?.end   ?? null) as any,
+          }));
+        }
       }
     }
 
